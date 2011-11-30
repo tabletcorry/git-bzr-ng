@@ -62,6 +62,10 @@ def bzr(args, **kwargs):
   cmd = ['bzr'] + args
   return run_command(cmd, **kwargs)
 
+def sed(args, **kwargs):
+  cmd = ['sed'] + args
+  return run_command(cmd, **kwargs)
+
 
 def short_branch_name(branch):
   """Convert a name like 'refs/heads/foo' to just 'foo'."""
@@ -266,19 +270,30 @@ def export_bzr(bzr_ref, cl=None, overwrite=False):
                  stdin=subprocess.PIPE,
                  return_proc=True)
 
-  git_proc_in = LoggingPipe(git_proc.stdin, 'bzr fast-export')
+  git_proc_in = LoggingPipe(git_proc.stdin, 'sed')
+
+  sed_proc = sed(['s/^committer \(.*\)@\(.*\) <> \(.*\)$/committer \\1 <\\1@\\2> \\3/'],
+                 stdin=subprocess.PIPE,
+                 stdout=git_proc_in,
+                 return_proc=True)
+
+  sed_proc_in = LoggingPipe(sed_proc.stdin, 'bzr fast-export')
 
   bzr_proc = bzr(['fast-export'] + bzr_import_arg + [
                   '--plain',
                   '--export-marks=%s' % bzr_marks,
                   '--git-branch=%s' % bzr_ref,
                   cl.bzr_dir(branch)],
-                 stdout=git_proc_in,
+                 stdout=sed_proc_in,
                  return_proc=True)
 
   bzr_proc.wait()
   if bzr_proc.returncode != 0:
     die('bzr export failed')
+  sed_proc_in.close()
+  sed_proc.wait()
+  if sed_proc.returncode != 0:
+    die('sed failed')
   git_proc_in.close()
   git_proc.wait()
   if bzr_proc.returncode != 0:
